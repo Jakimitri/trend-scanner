@@ -11,6 +11,7 @@ API_KEY = st.secrets.get("YOUTUBE_API_KEY", os.environ.get("YOUTUBE_API_KEY", ""
 
 # Offizielle YouTube-Kategorie-IDs
 KATEGORIEN = {
+    "Fun, Doomscrolling & Unnützes": "FUN",
     "Filme & Trailer": "1",
     "Tiere": "15",
     "Sport": "17",
@@ -29,6 +30,9 @@ KATEGORIEN = {
 REGIONEN = {"Schweiz": "CH", "Deutschland": "DE", "Österreich": "AT", "USA": "US",
             "Grossbritannien": "GB", "Weltweit": None}
 SHORTS_MAX_SEK = 180  # YouTube Shorts sind maximal 3 Minuten lang
+# «Fun» ist keine YouTube-Kategorie, sondern ein Mix: kurze, schnell drehende Clips aus diesen Quellen
+FUN_QUELLEN = ["24", "23", "22", "15"]  # Unterhaltung, Comedy, Lifestyle/Vlogs, Tiere
+FUN_MAX_SEK = 90
 WELTWEIT_LAENDER = ["US", "GB", "DE", "IN", "BR", "JP", "KR", "FR", "MX", "CH"]
 
 
@@ -67,6 +71,7 @@ def hole_trends(region, kategorie_id, limit):
             aufrufe = int(stt.get("viewCount", 0))
             sek = dauer_in_sekunden(v["contentDetails"]["duration"])
             kat_name = next((k for k, cid in KATEGORIEN.items() if cid == sn.get("categoryId")), "Sonstiges")
+            ist_fun = sn.get("categoryId") in FUN_QUELLEN and sek <= FUN_MAX_SEK
             videos.append({
                 "Titel": sn["title"], "Kanal": sn["channelTitle"], "Kategorie": kat_name,
                 "Region": region, "Aufrufe": aufrufe,
@@ -77,6 +82,7 @@ def hole_trends(region, kategorie_id, limit):
                 "Link": f"https://www.youtube.com/watch?v={v['id']}",
                 "Thumbnail": sn["thumbnails"]["medium"]["url"],
                 "_id": v["id"],
+                "Fun": ist_fun,
             })
         token = res.get("nextPageToken")
         if not token:
@@ -109,6 +115,10 @@ sortierung = st.radio("Sortieren nach", ["Gesamtaufrufe", "Aufrufe pro Stunde (e
 if st.button("🔍 Scan starten", type="primary", use_container_width=True, disabled=(not alle_kats and not gewaehlt)):
     laender = WELTWEIT_LAENDER if REGIONEN[region] is None else [REGIONEN[region]]
     kat_ids = [None] if alle_kats else [KATEGORIEN[k] for k in gewaehlt]
+    fun_gewaehlt = "FUN" in kat_ids
+    if fun_gewaehlt:
+        kat_ids = [k for k in kat_ids if k != "FUN"]
+        kat_ids += [q for q in FUN_QUELLEN if q not in kat_ids]
     # Pro Abfrage genug holen, damit nach Filtern und Zusammenführen genug übrig bleibt
     pro_abfrage = anzahl if (typ == "Alle" and len(laender) == 1 and len(kat_ids) == 1) else min(100, max(25, anzahl))
 
@@ -123,7 +133,11 @@ if st.button("🔍 Scan starten", type="primary", use_container_width=True, disa
 
     if not alle_kats:
         # YouTube liefert vereinzelt Videos aus Nachbarkategorien -> streng nachfiltern
-        videos = [v for v in videos if v["Kategorie"] in gewaehlt]
+        echte = [k for k in gewaehlt if k != "Fun, Doomscrolling & Unnützes"]
+        videos = [v for v in videos if v["Kategorie"] in echte or (fun_gewaehlt and v["Fun"])]
+        for v in videos:
+            if fun_gewaehlt and v["Fun"] and v["Kategorie"] not in echte:
+                v["Kategorie"] = "Fun, Doomscrolling & Unnützes"
     if typ.startswith("Nur Shorts"):
         videos = [v for v in videos if v["Typ"] == "Short"]
     elif typ.startswith("Nur normale"):
@@ -148,6 +162,6 @@ if st.button("🔍 Scan starten", type="primary", use_container_width=True, disa
         st.divider()
 
     import pandas as pd
-    df = pd.DataFrame(videos).drop(columns=["Thumbnail", "Sekunden", "_id"])
+    df = pd.DataFrame(videos).drop(columns=["Thumbnail", "Sekunden", "_id", "Fun"])
     st.download_button("📥 Als CSV herunterladen", df.to_csv(index=False).encode("utf-8"),
                        "trends.csv", "text/csv", use_container_width=True)
