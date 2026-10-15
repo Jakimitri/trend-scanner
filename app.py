@@ -121,6 +121,9 @@ if st.button("🔍 Scan starten", type="primary", use_container_width=True, disa
                         gesehen.add(v["_id"])
                         videos.append(v)
 
+    if not alle_kats:
+        # YouTube liefert vereinzelt Videos aus Nachbarkategorien -> streng nachfiltern
+        videos = [v for v in videos if v["Kategorie"] in gewaehlt]
     if typ.startswith("Nur Shorts"):
         videos = [v for v in videos if v["Typ"] == "Short"]
     elif typ.startswith("Nur normale"):
